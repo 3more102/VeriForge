@@ -18,8 +18,9 @@
 - [x] Add an optional Slang CST source index while preserving explicit
   requirement annotations and scanner-only operation.
 - [x] Add normalized adapters for Questa, VCS, and Xcelium execution.
-- [ ] Import UCIS coverage data and preserve source-level provenance.
-- [ ] Add a lightweight local HTML view after the report model stabilizes.
+- [x] Import UCIS XML coverage data, apply bin thresholds, and preserve
+  source-level provenance with explicit mapping support.
+- [x] Add a searchable, self-contained local HTML report with coverage provenance.
 
 Formal analysis and AI-assisted debugging are later extensions. They are not
-part of the v0.1 execution path.
+part of the v0.2 execution path.

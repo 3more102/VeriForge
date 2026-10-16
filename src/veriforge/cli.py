@@ -13,12 +13,14 @@ import tomllib
 from pathlib import Path
 
 from . import __version__
-from .analysis import analyze, render_markdown
+from .analysis import analyze, render_html, render_markdown
 from .history import list_runs
 from .project import ProjectError, load_project
 from .regression import run_regression
 from .runner import run_simulation
+from .scanner import scan_sources
 from .source_index import build_source_index
+from .ucis import import_ucis_file
 
 
 _NAME = re.compile(r"[^A-Za-z0-9_-]+")
@@ -212,6 +214,9 @@ def _command_analyze(args: argparse.Namespace) -> int:
         (reports / "veriforge-report.md").write_text(
             render_markdown(result), encoding="utf-8"
         )
+        (reports / "veriforge-report.html").write_text(
+            render_html(result), encoding="utf-8"
+        )
     except (OSError, ProjectError) as exc:
         print(f"veriforge: {exc}", file=sys.stderr)
         return 2
@@ -223,6 +228,7 @@ def _command_analyze(args: argparse.Namespace) -> int:
     )
     print(f"Source index: {result['source_index']['backend']} ({len(result['source_index']['sources'])} sources)")
     print(f"Reports: {project.root / 'reports' / 'veriforge-report.md'}")
+    print(f"HTML: {project.root / 'reports' / 'veriforge-report.html'}")
     index_failed = any(
         item["status"] in {"parse_error", "unreadable"}
         for item in result["source_index"]["sources"]
@@ -254,6 +260,25 @@ def _command_index(args: argparse.Namespace) -> int:
     for warning in source_index["warnings"]:
         print(f"Warning: {warning}")
     return 1 if failed else 0
+
+
+def _command_coverage_import(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.project)
+        static = scan_sources(project)
+        result = import_ucis_file(project, args.xml, static, args.map)
+    except (OSError, ProjectError, ValueError) as exc:
+        print(f"veriforge: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"Imported {result['mapped_count']}/{result['point_count']} UCIS point(s) "
+        f"into {result['row_count']} normalized coverage row(s)."
+    )
+    print(f"Coverage: {result['coverage_path']}")
+    print(f"Provenance: {result['metadata_path']}")
+    for item in result["unmatched"]:
+        print(f"Warning: Unmapped {item['ucis_path']}: {item['reason']}")
+    return 1 if result["unmatched"] else 0
 
 
 def _add_sources(project, kind: str, source_paths: list[str]) -> list[Path]:
@@ -478,6 +503,14 @@ def build_parser() -> argparse.ArgumentParser:
     regress_parser = subparsers.add_parser("regress", help="run named seeded regression cases")
     regress_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
     regress_parser.set_defaults(func=_command_regress)
+
+    coverage_parser = subparsers.add_parser("coverage", help="import simulator coverage data")
+    coverage_subparsers = coverage_parser.add_subparsers(dest="coverage_command", required=True)
+    import_parser = coverage_subparsers.add_parser("import", help="import a UCIS XML coverage export")
+    import_parser.add_argument("xml", help="UCIS XML file exported by a simulator")
+    import_parser.add_argument("--project", default=".", help="target project directory")
+    import_parser.add_argument("--map", help="CSV mapping with ucis_path,requirement_id,coverage_id columns")
+    import_parser.set_defaults(func=_command_coverage_import)
     return parser
 
 

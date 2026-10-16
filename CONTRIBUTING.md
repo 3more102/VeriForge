@@ -1,6 +1,6 @@
 # Contributing
 
-1. Keep the v0.1 core deterministic and dependency-free.
+1. Keep the core deterministic and dependency-free.
 2. Add tests for input validation, evidence mapping, and report status changes.
 3. Do not silently interpret unsupported SystemVerilog syntax as verified
    evidence; emit a warning or leave evidence unresolved.
