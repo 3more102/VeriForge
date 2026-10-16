@@ -23,5 +23,6 @@ jobs:
             python -m veriforge init "demo-${simulator}"
             python -m veriforge configure --simulator "${simulator}" "demo-${simulator}"
             python -m veriforge run "demo-${simulator}"
+            python -m veriforge regress "demo-${simulator}"
             python -m veriforge history "demo-${simulator}"
           done

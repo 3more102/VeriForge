@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -27,7 +28,10 @@ def record_run(project_root: Path, result: dict, log_path: str) -> int:
                 return_code INTEGER,
                 waveform TEXT,
                 log_path TEXT NOT NULL,
-                message TEXT
+                message TEXT,
+                scenario TEXT,
+                seed INTEGER,
+                arguments_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE TABLE IF NOT EXISTS run_tests (
                 run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -39,11 +43,21 @@ def record_run(project_root: Path, result: dict, log_path: str) -> int:
             CREATE INDEX IF NOT EXISTS runs_started_at_idx ON runs(started_at DESC, id DESC);
             """
         )
+        run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        for column, definition in (
+            ("scenario", "TEXT"),
+            ("seed", "INTEGER"),
+            ("arguments_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            if column not in run_columns:
+                connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
         cursor = connection.execute(
             """INSERT INTO runs (
                    started_at, simulator, top_module, status, duration_seconds,
-                   return_code, waveform, log_path, message
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   return_code, waveform, log_path, message, scenario, seed, arguments_json
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result["started_at"],
                 result["simulator"],
@@ -54,6 +68,9 @@ def record_run(project_root: Path, result: dict, log_path: str) -> int:
                 result.get("waveform"),
                 log_path,
                 result.get("message"),
+                result.get("scenario"),
+                result.get("seed"),
+                json.dumps(result.get("arguments", [])),
             ),
         )
         run_id = int(cursor.lastrowid)

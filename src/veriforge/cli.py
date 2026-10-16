@@ -16,6 +16,7 @@ from . import __version__
 from .analysis import analyze, render_markdown
 from .history import list_runs
 from .project import ProjectError, load_project
+from .regression import run_regression
 from .runner import run_simulation
 
 
@@ -29,6 +30,7 @@ def _example_files(name: str) -> dict[str, str]:
 name = "{project_name}"
 requirements = "requirements.csv"
 coverage_file = "coverage.csv"
+regression_file = "regression.toml"
 
 [simulator]
 name = "verilator"
@@ -45,6 +47,17 @@ REQ-RV-001,Retain output data while downstream applies backpressure,high,ready-v
 REQ-RV-002,Accept a new beat on the same cycle the old beat is consumed,medium,ready-valid,test;assertion;coverage
 ''',
         "coverage.csv": "requirement_id,coverage_id,hits,bins\n",
+        "regression.toml": '''[regression]
+name = "ready_valid_seed_sweep"
+
+[[case]]
+name = "seed_1"
+seed = 1
+
+[[case]]
+name = "seed_2"
+seed = 2
+''',
         "rtl/rv_buffer.sv": '''module rv_buffer (
     input  logic       clk,
     input  logic       rst_n,
@@ -83,12 +96,19 @@ endmodule
     logic valid_o;
     logic ready_o = 1'b0;
     logic [7:0] data_o;
+    logic [31:0] seed;
+    logic [7:0] first_payload;
+    logic [7:0] replacement_payload;
 
     always #5 clk = ~clk;
 
     rv_buffer dut (.*);
 
     initial begin
+        seed = 1;
+        if (!$value$plusargs("veriforge_seed=%d", seed)) seed = 1;
+        first_payload = (seed[7:0] * 8'd37) + 8'd11;
+        replacement_payload = (seed[7:0] * 8'd73) + 8'd29;
         $dumpfile("waveform.vcd");
         $dumpvars(0, tb_top);
 
@@ -97,18 +117,18 @@ endmodule
 
         // vf:test REQ-RV-001,REQ-RV-002 rv_buffer_backpressure_and_refill
         valid_i = 1'b1;
-        data_i = 8'hA5;
+        data_i = first_payload;
         @(posedge clk);
         #1 valid_i = 1'b0;
         // vf:asserts REQ-RV-001
-        assert (valid_o && data_o == 8'hA5)
+        assert (valid_o && data_o == first_payload)
             else $fatal(1, "first beat was not captured");
 
         repeat (3) begin
             @(posedge clk);
             #1;
             // vf:asserts REQ-RV-001
-            assert (valid_o && data_o == 8'hA5)
+            assert (valid_o && data_o == first_payload)
                 else $fatal(1, "data changed while backpressured");
         end
 
@@ -119,11 +139,11 @@ endmodule
 
         ready_o = 1'b1;
         valid_i = 1'b1;
-        data_i = 8'h3C;
+        data_i = replacement_payload;
         @(posedge clk);
         #1;
         // vf:asserts REQ-RV-002
-        assert (valid_o && data_o == 8'h3C)
+        assert (valid_o && data_o == replacement_payload)
             else $fatal(1, "replacement beat was not accepted");
 
 `ifdef VERILATOR
@@ -137,7 +157,7 @@ endmodule
         // vf:asserts REQ-RV-002
         assert (!valid_o) else $fatal(1, "buffer did not drain");
 
-        $display("VFTEST: rv_buffer_backpressure_and_refill PASS");
+        $display("VFTEST: rv_buffer_backpressure_and_refill PASS seed=%0d", seed);
         $finish;
     end
 endmodule
@@ -337,13 +357,35 @@ def _command_history(args: argparse.Namespace) -> int:
     print(f"Recent runs for {project.name} (newest first):")
     for run in runs:
         tests = f"{run['passed_tests'] or 0}/{run['test_count']} tests passed"
+        scenario = f" [{run['scenario']}]" if run.get("scenario") else ""
+        seed = f" seed={run['seed']}" if run.get("seed") is not None else ""
         print(
-            f"#{run['id']} {run['started_at']}  {run['simulator']}  "
+            f"#{run['id']} {run['started_at']}  {run['simulator']}{scenario}{seed}  "
             f"{run['status']}  {tests}"
         )
         if run.get("message"):
             print(f"  {run['message']}")
     return 0
+
+
+def _command_regress(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.path)
+        code, summary = run_regression(project)
+    except (OSError, ProjectError) as exc:
+        print(f"veriforge: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"Regression {summary['name']}: {summary['status']} — "
+        f"{summary['passed_cases']}/{summary['case_count']} cases passed"
+    )
+    for case in summary["cases"]:
+        seed = f" seed={case['seed']}" if case["seed"] is not None else ""
+        print(f"- {case['name']}{seed}: {case['status']} (run #{case['run_id']})")
+        if case.get("message"):
+            print(f"  {case['message']}")
+    print(f"Summary: {project.root / '.veriforge' / 'regression.json'}")
+    return code
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -381,6 +423,10 @@ def build_parser() -> argparse.ArgumentParser:
     history_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
     history_parser.add_argument("--limit", type=int, default=20, help="maximum runs to show")
     history_parser.set_defaults(func=_command_history)
+
+    regress_parser = subparsers.add_parser("regress", help="run named seeded regression cases")
+    regress_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
+    regress_parser.set_defaults(func=_command_regress)
     return parser
 
 

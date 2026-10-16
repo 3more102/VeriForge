@@ -7,8 +7,8 @@ action.
 
 The v0.1 vertical slice supports Verilator and Icarus Verilog, plus a
 simulator-neutral CSV coverage import. Analysis is deterministic and local; the
-only persistent store is a small project-local SQLite run history. No AI service
-or external Python package is required at runtime.
+run ledger is a small project-local SQLite database. No AI service or external
+Python package is required at runtime.
 
 ## Quick start
 
@@ -18,6 +18,7 @@ python -m veriforge init demo
 cd demo
 python -m veriforge analyze
 python -m veriforge run
+python -m veriforge regress
 python -m veriforge history
 python -m veriforge analyze
 ```
@@ -38,6 +39,7 @@ requirement status.
 | `veriforge analyze [project]` | Trace requirements to evidence and write Markdown and JSON reports. |
 | `veriforge configure --simulator <name> [project]` | Select `verilator` or `icarus` for the project. |
 | `veriforge run [project]` | Compile and run the configured testbench; save logs, waveform, and history. |
+| `veriforge regress [project]` | Run every named case in `regression.toml` and write an aggregate result. |
 | `veriforge history [project] [--limit N]` | Show recent passed, failed, and blocked runs. |
 
 For example, add project-owned sources with `veriforge add rtl ../rtl/adapter.sv`
@@ -50,6 +52,13 @@ The default run enables tracing and produces `waveform.vcd` when the testbench
 calls `$dumpfile` and `$dumpvars`. Icarus runs use `iverilog` and `vvp`; Verilator
 runs use Verilator's built-in binary flow. Both require explicit `VFTEST`
 markers for a passing result.
+
+`veriforge regress` runs the cases in `regression.toml` in order. Each case can
+provide a `seed` and simulator runtime `arguments`; seeds are passed as
+`+veriforge_seed=<N>`. The testbench must consume that plusarg for the seed to
+affect stimulus. `veriforge init` includes an example that derives two input
+payloads from the selected seed. Every case gets a separate working directory,
+log, and waveform so later cases do not replace earlier evidence.
 
 ## Requirement traceability
 
@@ -112,8 +121,11 @@ coverage syntax.
 - `reports/veriforge-report.json` — machine-readable requirement evidence.
 - `.veriforge/run.json` — last normalized simulation result.
 - `.veriforge/history.sqlite3` — append-only run and per-test history.
+- `.veriforge/regression.json` — aggregate status and artifact paths for the last regression.
 - `logs/verilator.log` or `logs/icarus.log` — compiler and simulation output.
+- `logs/<simulator>-<case>.log` — per-case regression output.
 - `waveform.vcd` — traced signals when the testbench enables `$dumpvars`.
+- `.veriforge/regression/<case>/waveform.vcd` — per-case regression waveform.
 
 ## Development
 
@@ -129,7 +141,7 @@ Python 3.11 or newer is required. Runtime code uses only the standard library.
 The source scanner is intentionally lightweight and recognizes explicit
 annotations rather than pretending to parse the complete SystemVerilog
 language. The next stages are parser-backed indexing (Slang), Questa/VCS/Xcelium
-adapters, UCIS import, regression aggregation, and richer HTML exploration.
+adapters, UCIS import, and richer HTML exploration.
 v0.1 does not implement UVM automation, formal proof, or AI-based analysis.
 
 ## License

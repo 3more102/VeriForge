@@ -59,7 +59,12 @@ def _write_result(project: Project, result: dict, combined_log: str) -> None:
     logs_dir = project.root / "logs"
     state_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
-    log_name = f"{result['simulator']}.log"
+    scenario = result.get("scenario")
+    suffix = ""
+    if scenario:
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", scenario)
+        suffix = f"-{safe_name or 'case'}"
+    log_name = f"{result['simulator']}{suffix}.log"
     log_path = logs_dir / log_name
     log_path.write_text(combined_log, encoding="utf-8")
     try:
@@ -74,7 +79,14 @@ def _write_result(project: Project, result: dict, combined_log: str) -> None:
     )
 
 
-def _blocked(project: Project, simulator: str, message: str) -> tuple[int, dict]:
+def _blocked(
+    project: Project,
+    simulator: str,
+    message: str,
+    scenario: str | None,
+    seed: int | None,
+    runtime_args: list[str],
+) -> tuple[int, dict]:
     result = {
         "status": "blocked",
         "simulator": simulator,
@@ -86,6 +98,9 @@ def _blocked(project: Project, simulator: str, message: str) -> tuple[int, dict]
         "tests": [],
         "waveform": None,
         "message": message,
+        "scenario": scenario,
+        "seed": seed,
+        "arguments": runtime_args,
     }
     _write_result(project, result, f"VeriForge: {message}\n")
     return 2, result
@@ -98,6 +113,10 @@ def _run_adapter(
     run_command: list[str],
     expected_output: Path,
     required_tools: list[str],
+    runtime_args: list[str],
+    scenario: str | None,
+    seed: int | None,
+    execution_dir: Path | None,
 ) -> tuple[int, dict]:
     if project.waveform_file and project.waveform_file.exists():
         project.waveform_file.unlink()
@@ -108,8 +127,14 @@ def _run_adapter(
             project,
             simulator,
             f"Required tool(s) not found on PATH: {names}.",
+            scenario,
+            seed,
+            runtime_args,
         )
 
+    run_command = [*run_command, *runtime_args]
+    run_cwd = execution_dir or project.root
+    run_cwd.mkdir(parents=True, exist_ok=True)
     timeout = project.timeout_seconds
     output_chunks: list[str] = ["$ " + " ".join(compile_command) + "\n"]
     compile_code: int | None = None
@@ -121,7 +146,7 @@ def _run_adapter(
     try:
         compiled = subprocess.run(
             compile_command,
-            cwd=project.root,
+            cwd=run_cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -149,7 +174,7 @@ def _run_adapter(
             try:
                 ran = subprocess.run(
                     run_command,
-                    cwd=project.root,
+                    cwd=run_cwd,
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -188,12 +213,22 @@ def _run_adapter(
         "tests": tests,
         "waveform": waveform,
         "message": message,
+        "scenario": scenario,
+        "seed": seed,
+        "arguments": runtime_args,
     }
     _write_result(project, result, log)
     return (0 if status == "passed" else 1), result
 
 
-def run_verilator(project: Project) -> tuple[int, dict]:
+def run_verilator(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
     """Build and run a Verilator binary with assertions and optional tracing."""
     build_dir = project.root / ".veriforge" / "build"
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -222,10 +257,21 @@ def run_verilator(project: Project) -> tuple[int, dict]:
         [str(output)],
         output,
         ["verilator"],
+        list(runtime_args),
+        scenario,
+        seed,
+        execution_dir,
     )
 
 
-def run_icarus(project: Project) -> tuple[int, dict]:
+def run_icarus(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
     """Compile and run an Icarus Verilog testbench with VCD support."""
     build_dir = project.root / ".veriforge" / "build"
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -249,14 +295,31 @@ def run_icarus(project: Project) -> tuple[int, dict]:
         [runtime, str(output)],
         output,
         ["iverilog", "vvp"],
+        list(runtime_args),
+        scenario,
+        seed,
+        execution_dir,
     )
 
 
-def run_simulation(project: Project) -> tuple[int, dict]:
+def run_simulation(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
     """Run the configured adapter."""
     adapters = {"verilator": run_verilator, "icarus": run_icarus}
     try:
         adapter = adapters[project.simulator]
     except KeyError as exc:
         raise ProjectError(f"Unsupported simulator: {project.simulator}") from exc
-    return adapter(project)
+    return adapter(
+        project,
+        runtime_args=runtime_args,
+        scenario=scenario,
+        seed=seed,
+        execution_dir=execution_dir,
+    )

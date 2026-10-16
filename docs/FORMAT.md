@@ -51,3 +51,23 @@ Required columns are `requirement_id`, `coverage_id`, `hits`, and `bins`.
 Coverage IDs must match source annotations. `hits` is constrained to the range
 0 through `bins`; `bins` must be positive. Each requirement/coverage ID pair
 must occur once.
+
+## `regression.toml`
+
+Use one `[[case]]` table per simulator run:
+
+```toml
+[regression]
+name = "ready_valid_seed_sweep"
+
+[[case]]
+name = "seed_1"
+seed = 1
+arguments = ["+mode=stress"]
+```
+
+Case names must be unique. Seeds are optional integers from 0 through
+4,294,967,295 and are passed to the testbench as `+veriforge_seed=<N>`.
+Additional `arguments` are forwarded to the simulator runtime as individual
+arguments, without shell interpretation. A testbench must read the seed
+plusarg if stimulus should change between seed cases.

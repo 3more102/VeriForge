@@ -33,6 +33,7 @@ class Project:
     waveform_file: Path | None
     requirements: tuple[Requirement, ...]
     coverage_file: Path
+    regression_file: Path
 
 
 _REQ_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
@@ -146,6 +147,7 @@ def load_project(path: str | Path) -> Project:
 
     manifest_name = str(project.get("requirements", "requirements.csv"))
     coverage_name = str(project.get("coverage_file", "coverage.csv"))
+    regression_name = str(project.get("regression_file", "regression.toml"))
     timeout = run.get("timeout_seconds", 60)
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1:
         raise ProjectError("[run].timeout_seconds must be a positive integer")
@@ -173,4 +175,5 @@ def load_project(path: str | Path) -> Project:
         waveform_file=waveform_file,
         requirements=_read_requirements((root / manifest_name).resolve()),
         coverage_file=(root / coverage_name).resolve(),
+        regression_file=(root / regression_name).resolve(),
     )
