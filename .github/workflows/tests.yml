@@ -26,3 +26,7 @@ jobs:
             python -m veriforge regress "demo-${simulator}"
             python -m veriforge history "demo-${simulator}"
           done
+      - name: Show simulator logs on failure
+        if: failure()
+        run: |
+          find demo-verilator demo-icarus -type f -path '*/logs/*.log' -print -exec cat {} \;
