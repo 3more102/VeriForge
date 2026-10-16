@@ -5,8 +5,9 @@ connects requirement IDs to testbench checks, assertions, coverage points, and
 simulation outcomes, then gives each uncovered requirement a concrete next
 action.
 
-The v0.1 vertical slice supports a Verilator run and a simulator-neutral CSV
-coverage import. Analysis is deterministic and local: no AI service, database,
+The v0.1 vertical slice supports Verilator and Icarus Verilog, plus a
+simulator-neutral CSV coverage import. Analysis is deterministic and local; the
+only persistent store is a small project-local SQLite run history. No AI service
 or external Python package is required at runtime.
 
 ## Quick start
@@ -17,14 +18,16 @@ python -m veriforge init demo
 cd demo
 python -m veriforge analyze
 python -m veriforge run
+python -m veriforge history
 python -m veriforge analyze
 ```
 
 `veriforge init` creates a small ready/valid buffer example. The first analysis
 shows that the source contains linked assertions, tests, and coverpoints, while
-test execution and coverage measurements are still pending. If Verilator is
-installed, `veriforge run` builds the testbench, captures `VFTEST` markers, and
-saves the log and run record. A second analysis updates the requirement status.
+test execution and coverage measurements are still pending. With the selected
+simulator installed, `veriforge run` builds the testbench, captures `VFTEST`
+markers, and saves the log and run record. A second analysis updates the
+requirement status.
 
 ## Commands
 
@@ -33,13 +36,20 @@ saves the log and run record. A second analysis updates the requirement status.
 | `veriforge init [directory]` | Create an example project; refuses to overwrite a non-empty directory. |
 | `veriforge add rtl|tb <file>... [--project DIR]` | Copy HDL files into the project and add them to the configured source list. |
 | `veriforge analyze [project]` | Trace requirements to evidence and write Markdown and JSON reports. |
-| `veriforge run [project]` | Compile and run the configured Verilator testbench. |
+| `veriforge configure --simulator <name> [project]` | Select `verilator` or `icarus` for the project. |
+| `veriforge run [project]` | Compile and run the configured testbench; save logs, waveform, and history. |
+| `veriforge history [project] [--limit N]` | Show recent passed, failed, and blocked runs. |
 
 For example, add project-owned sources with `veriforge add rtl ../rtl/adapter.sv`
-and `veriforge add tb ../tb/adapter_tb.sv`. Edit `top_module` in
-`veriforge.toml` to select the testbench top. v0.1 supports Verilator as its
-simulator. The default run enables tracing and produces `waveform.vcd` when the
-testbench calls `$dumpfile` and `$dumpvars`.
+and `veriforge add tb ../tb/adapter_tb.sv`. Select an adapter with
+`veriforge configure --simulator icarus` or
+`veriforge configure --simulator verilator`. The selected tool must be installed
+on `PATH`. If it is missing, the run is marked blocked and retained in history.
+Edit `top_module` in `veriforge.toml` to select the testbench top.
+The default run enables tracing and produces `waveform.vcd` when the testbench
+calls `$dumpfile` and `$dumpvars`. Icarus runs use `iverilog` and `vvp`; Verilator
+runs use Verilator's built-in binary flow. Both require explicit `VFTEST`
+markers for a passing result.
 
 ## Requirement traceability
 
@@ -91,15 +101,18 @@ the report marks it pending.
 
 `veriforge.toml` names the project, requirement and coverage manifests, selected
 simulator, top module, source files, and timeout. Paths are relative to the
-configuration file. v0.1 executes Verilator only; the manifest and coverage
-import are deliberately simulator-neutral.
+configuration file. v0.1 supports Verilator and Icarus Verilog; the requirement
+manifest and coverage import are simulator-neutral. Concurrent cover properties
+in the example are guarded for Verilator because Icarus does not implement that
+coverage syntax.
 
 ## Generated files
 
 - `reports/veriforge-report.md` — concise gap summary and actions.
 - `reports/veriforge-report.json` — machine-readable requirement evidence.
 - `.veriforge/run.json` — last normalized simulation result.
-- `logs/verilator.log` — compiler and simulation output.
+- `.veriforge/history.sqlite3` — append-only run and per-test history.
+- `logs/verilator.log` or `logs/icarus.log` — compiler and simulation output.
 - `waveform.vcd` — traced signals when the testbench enables `$dumpvars`.
 
 ## Development
@@ -115,10 +128,9 @@ Python 3.11 or newer is required. Runtime code uses only the standard library.
 
 The source scanner is intentionally lightweight and recognizes explicit
 annotations rather than pretending to parse the complete SystemVerilog
-language. The next stages are parser-backed indexing (Slang), additional
-simulator adapters, UCIS import, regression aggregation, and richer HTML
-exploration. v0.1 does not implement UVM automation, formal proof, or AI-based
-analysis.
+language. The next stages are parser-backed indexing (Slang), Questa/VCS/Xcelium
+adapters, UCIS import, regression aggregation, and richer HTML exploration.
+v0.1 does not implement UVM automation, formal proof, or AI-based analysis.
 
 ## License
 

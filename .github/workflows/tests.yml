@@ -12,5 +12,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install HDL simulators
+        run: sudo apt-get update && sudo apt-get install -y iverilog verilator
       - run: python -m pip install --no-deps -e .
       - run: python -m unittest discover -s tests -v
+      - name: Exercise both simulator adapters
+        run: |
+          set -euo pipefail
+          for simulator in verilator icarus; do
+            python -m veriforge init "demo-${simulator}"
+            python -m veriforge configure --simulator "${simulator}" "demo-${simulator}"
+            python -m veriforge run "demo-${simulator}"
+            python -m veriforge history "demo-${simulator}"
+          done

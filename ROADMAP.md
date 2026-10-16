@@ -6,6 +6,8 @@
 - [x] Add RTL and testbench sources through the CLI.
 - [x] Map requirements to annotated tests, assertions, and coverpoints.
 - [x] Run a Verilator build and simulation, with timeout, saved logs, and VCD tracing.
+- [x] Select between Verilator and Icarus Verilog adapters from the CLI.
+- [x] Persist normalized run and test outcomes in local SQLite history.
 - [x] Normalize pass/fail markers and imported coverage bins.
 - [x] Generate deterministic Markdown and JSON gap reports.
 - [x] Add input validation and unit tests.

@@ -7,14 +7,16 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import tomllib
 from pathlib import Path
 
 from . import __version__
 from .analysis import analyze, render_markdown
+from .history import list_runs
 from .project import ProjectError, load_project
-from .runner import run_verilator
+from .runner import run_simulation
 
 
 _NAME = re.compile(r"[^A-Za-z0-9_-]+")
@@ -110,8 +112,10 @@ endmodule
                 else $fatal(1, "data changed while backpressured");
         end
 
+`ifdef VERILATOR
         // vf:covers REQ-RV-001 id=blocked_valid
         cover property (@(posedge clk) valid_o && !ready_o);
+`endif
 
         ready_o = 1'b1;
         valid_i = 1'b1;
@@ -122,8 +126,10 @@ endmodule
         assert (valid_o && data_o == 8'h3C)
             else $fatal(1, "replacement beat was not accepted");
 
+`ifdef VERILATOR
         // vf:covers REQ-RV-002 id=simultaneous_consume_refill
         cover property (@(posedge clk) valid_o && ready_o && valid_i);
+`endif
 
         valid_i = 1'b0;
         @(posedge clk);
@@ -275,17 +281,69 @@ def _command_add(args: argparse.Namespace) -> int:
 def _command_run(args: argparse.Namespace) -> int:
     try:
         project = load_project(args.path)
-        code, result = run_verilator(project)
+        code, result = run_simulation(project)
     except (OSError, ProjectError) as exc:
         print(f"veriforge: {exc}", file=sys.stderr)
         return 2
-    print(f"Verilator run: {result['status']}")
+    print(f"{result['simulator'].capitalize()} run #{result.get('run_id', '?')}: {result['status']}")
     if result.get("message"):
         print(result["message"])
-    print(f"Log: {project.root / 'logs' / 'verilator.log'}")
+    if result.get("history_error"):
+        print(result["history_error"])
+    print(f"Log: {project.root / 'logs' / (result['simulator'] + '.log')}")
     if result.get("waveform"):
         print(f"Waveform: {project.root / result['waveform']}")
     return code
+
+
+def _command_configure(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.path)
+        config_path = project.root / "veriforge.toml"
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+        in_simulator = False
+        name_line = None
+        for index, line in enumerate(lines):
+            table = re.match(r"^\s*\[([^]]+)\]\s*(?:#.*)?$", line)
+            if table:
+                in_simulator = table.group(1).strip() == "simulator"
+            if in_simulator and re.match(r"^\s*name\s*=", line):
+                name_line = index
+                break
+        if name_line is None:
+            raise ProjectError("Could not find [simulator].name in veriforge.toml")
+        lines[name_line] = f"name = {json.dumps(args.simulator)}"
+        temporary = config_path.with_suffix(".toml.tmp")
+        temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(temporary, config_path)
+        configured = load_project(project.root)
+    except (OSError, ProjectError, tomllib.TOMLDecodeError) as exc:
+        print(f"veriforge: {exc}", file=sys.stderr)
+        return 2
+    print(f"Configured {configured.name} to use {configured.simulator}.")
+    return 0
+
+
+def _command_history(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.path)
+        runs = list_runs(project.root, args.limit)
+    except (OSError, sqlite3.Error, ProjectError, ValueError) as exc:
+        print(f"veriforge: {exc}", file=sys.stderr)
+        return 2
+    if not runs:
+        print(f"{project.name}: no simulation runs recorded yet.")
+        return 0
+    print(f"Recent runs for {project.name} (newest first):")
+    for run in runs:
+        tests = f"{run['passed_tests'] or 0}/{run['test_count']} tests passed"
+        print(
+            f"#{run['id']} {run['started_at']}  {run['simulator']}  "
+            f"{run['status']}  {tests}"
+        )
+        if run.get("message"):
+            print(f"  {run['message']}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -310,9 +368,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument("--project", default=".", help="target project directory")
     add_parser.set_defaults(func=_command_add)
 
-    run_parser = subparsers.add_parser("run", help="build and run the configured Verilator testbench")
+    configure_parser = subparsers.add_parser("configure", help="select the project simulator")
+    configure_parser.add_argument("--simulator", required=True, choices=("verilator", "icarus"))
+    configure_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
+    configure_parser.set_defaults(func=_command_configure)
+
+    run_parser = subparsers.add_parser("run", help="build and run the configured testbench")
     run_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
     run_parser.set_defaults(func=_command_run)
+
+    history_parser = subparsers.add_parser("history", help="show recorded simulation runs")
+    history_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
+    history_parser.add_argument("--limit", type=int, default=20, help="maximum runs to show")
+    history_parser.set_defaults(func=_command_history)
     return parser
 
 

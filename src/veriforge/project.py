@@ -36,6 +36,7 @@ class Project:
 
 
 _REQ_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_HDL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _EVIDENCE_TYPES = {"test", "assertion", "coverage"}
 _REQUIREMENT_COLUMNS = {
     "id", "description", "priority", "area", "required_evidence"
@@ -127,12 +128,12 @@ def load_project(path: str | Path) -> Project:
     sources_value = simulator.get("sources", [])
     if not name:
         raise ProjectError("[project].name must be set in veriforge.toml")
-    if sim_name != "verilator":
+    if sim_name not in {"verilator", "icarus"}:
         raise ProjectError(
-            f"Simulator {sim_name!r} is not supported in v0.1; use 'verilator'"
+            f"Simulator {sim_name!r} is not supported; choose 'verilator' or 'icarus'"
         )
-    if not top:
-        raise ProjectError("[simulator].top_module must be set in veriforge.toml")
+    if not _HDL_IDENTIFIER.fullmatch(top):
+        raise ProjectError("[simulator].top_module must be a SystemVerilog identifier")
     if not isinstance(sources_value, list) or not sources_value:
         raise ProjectError("[simulator].sources must be a non-empty array")
 

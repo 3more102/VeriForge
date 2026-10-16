@@ -1,13 +1,16 @@
 import unittest
 import json
 import tempfile
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from veriforge.cli import _init_project
+from veriforge.cli import _init_project, main
 from veriforge.project import load_project
-from veriforge.runner import evaluate_run, parse_test_markers, run_verilator
+from veriforge.history import list_runs
+from veriforge.runner import evaluate_run, parse_test_markers, run_simulation, run_verilator
 
 
 class RunnerTests(unittest.TestCase):
@@ -55,16 +58,57 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("--coverage", calls[0])
             stored = json.loads((root / ".veriforge/run.json").read_text())
             self.assertEqual(stored["tests"][0]["status"], "pass")
+            self.assertEqual(stored["run_id"], 1)
             self.assertIn("VFTEST", (root / "logs/verilator.log").read_text())
+            history = list_runs(root)
+            self.assertEqual(history[0]["status"], "passed")
+            self.assertEqual(history[0]["test_count"], 1)
+            self.assertEqual(history[0]["passed_tests"], 1)
+
+    def test_icarus_run_records_pass_and_uses_vvp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            self.assertEqual(main(["configure", "--simulator", "icarus", str(root)]), 0)
+            project = load_project(root)
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                if command[0] == "/usr/bin/iverilog":
+                    output = Path(command[command.index("-o") + 1])
+                    output.write_text("fake bytecode")
+                    return CompletedProcess(command, 0, "build succeeded\n")
+                (root / "waveform.vcd").write_text("$enddefinitions $end\n")
+                return CompletedProcess(command, 0, "VFTEST: smoke PASS\n")
+
+            with patch("veriforge.runner.shutil.which", side_effect=lambda name: f"/usr/bin/{name}"), \
+                 patch("veriforge.runner.subprocess.run", side_effect=fake_run):
+                code, result = run_simulation(project)
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["simulator"], "icarus")
+            self.assertEqual(result["waveform"], "waveform.vcd")
+            self.assertIn("-g2012", calls[0])
+            self.assertEqual(calls[1][0], "/usr/bin/vvp")
+            self.assertTrue((root / "logs/icarus.log").is_file())
+            self.assertEqual(list_runs(root)[0]["simulator"], "icarus")
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main(["history", str(root)]), 0)
+            self.assertIn("1/1 tests passed", output.getvalue())
 
     def test_missing_verilator_is_recorded_as_blocked(self):
         with tempfile.TemporaryDirectory() as directory:
             root = _init_project(Path(directory) / "demo")
+            (root / "waveform.vcd").write_text("stale waveform")
             with patch("veriforge.runner.shutil.which", return_value=None):
                 code, result = run_verilator(load_project(root))
             self.assertEqual(code, 2)
             self.assertEqual(result["status"], "blocked")
             self.assertTrue((root / ".veriforge/run.json").is_file())
+            self.assertEqual(list_runs(root)[0]["status"], "blocked")
+            self.assertFalse((root / "waveform.vcd").exists())
 
 
 if __name__ == "__main__":

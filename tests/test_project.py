@@ -50,6 +50,31 @@ class ProjectTests(unittest.TestCase):
             self.assertEqual(len(project.sources), 3)
             self.assertEqual(project.sources[-1], root / "rtl/new_block.sv")
 
+    def test_configure_command_selects_icarus(self):
+        from veriforge.cli import main
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            self.assertEqual(main(["configure", "--simulator", "icarus", str(root)]), 0)
+            project = load_project(root)
+            self.assertEqual(project.simulator, "icarus")
+
+    def test_rejects_unsupported_simulator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "questa"'))
+            with self.assertRaisesRegex(ProjectError, "choose 'verilator' or 'icarus'"):
+                load_project(root)
+
+    def test_rejects_invalid_top_module_identifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('top_module = "tb_top"', 'top_module = "../tb_top"'))
+            with self.assertRaisesRegex(ProjectError, "SystemVerilog identifier"):
+                load_project(root)
+
 
 if __name__ == "__main__":
     unittest.main()
