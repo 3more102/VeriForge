@@ -38,7 +38,7 @@ requirement status.
 | `veriforge init [directory]` | Create an example project; refuses to overwrite a non-empty directory. |
 | `veriforge add rtl|tb <file>... [--project DIR]` | Copy HDL files into the project and add them to the configured source list. |
 | `veriforge index [project] [--backend auto|scanner|slang]` | Inventory configured sources and, when available, parse them with Slang. |
-| `veriforge analyze [project]` | Trace requirements to evidence and write Markdown and JSON reports. |
+| `veriforge analyze [project]` | Trace requirements to evidence and write Markdown, JSON, and HTML reports. |
 | `veriforge configure --simulator <name> [project]` | Select `verilator`, `icarus`, `questa`, `vcs`, or `xcelium`. |
 | `veriforge run [project]` | Compile and run the configured testbench; save logs, waveform, and history. |
 | `veriforge regress [project]` | Run every named case in `regression.toml` and write an aggregate result. |
