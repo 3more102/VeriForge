@@ -16,6 +16,8 @@ class ProjectTests(unittest.TestCase):
             self.assertEqual(project.waveform_file, root / "waveform.vcd")
             self.assertEqual(len(project.requirements), 2)
             self.assertEqual(len(project.sources), 2)
+            testbench = (root / "tb/tb_top.sv").read_text()
+            self.assertLess(testbench.index("cover property"), testbench.index("initial begin"))
 
     def test_refuses_to_overwrite_nonempty_directory(self):
         with tempfile.TemporaryDirectory() as directory:

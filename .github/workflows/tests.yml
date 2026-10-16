@@ -29,4 +29,8 @@ jobs:
       - name: Show simulator logs on failure
         if: failure()
         run: |
-          find demo-verilator demo-icarus -type f -path '*/logs/*.log' -print -exec cat {} \;
+          for directory in demo-verilator demo-icarus; do
+            if [ -d "$directory" ]; then
+              find "$directory" -type f -path '*/logs/*.log' -print -exec cat {} \;
+            fi
+          done

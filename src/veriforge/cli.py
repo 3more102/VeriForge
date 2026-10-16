@@ -111,6 +111,14 @@ endmodule
 
     rv_buffer dut (.*);
 
+`ifdef VERILATOR
+    // vf:covers REQ-RV-001 id=blocked_valid
+    cover property (@(posedge clk) valid_o && !ready_o);
+
+    // vf:covers REQ-RV-002 id=simultaneous_consume_refill
+    cover property (@(posedge clk) valid_o && ready_o && valid_i);
+`endif
+
     initial begin
         seed = 1;
         if (!$value$plusargs("veriforge_seed=%d", seed)) seed = 1;
@@ -139,11 +147,6 @@ endmodule
                 else $fatal(1, "data changed while backpressured");
         end
 
-`ifdef VERILATOR
-        // vf:covers REQ-RV-001 id=blocked_valid
-        cover property (@(posedge clk) valid_o && !ready_o);
-`endif
-
         ready_o = 1'b1;
         valid_i = 1'b1;
         data_i = replacement_payload;
@@ -152,11 +155,6 @@ endmodule
         // vf:asserts REQ-RV-002
         assert (valid_o && data_o == replacement_payload)
             else $fatal(1, "replacement beat was not accepted");
-
-`ifdef VERILATOR
-        // vf:covers REQ-RV-002 id=simultaneous_consume_refill
-        cover property (@(posedge clk) valid_o && ready_o && valid_i);
-`endif
 
         valid_i = 1'b0;
         @(posedge clk);
