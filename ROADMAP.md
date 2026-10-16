@@ -17,7 +17,7 @@
 
 - [x] Add an optional Slang CST source index while preserving explicit
   requirement annotations and scanner-only operation.
-- [ ] Add normalized adapters for Questa, VCS, and Xcelium execution.
+- [x] Add normalized adapters for Questa, VCS, and Xcelium execution.
 - [ ] Import UCIS coverage data and preserve source-level provenance.
 - [ ] Add a lightweight local HTML view after the report model stabilizes.
 

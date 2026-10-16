@@ -459,7 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.set_defaults(func=_command_add)
 
     configure_parser = subparsers.add_parser("configure", help="select the project simulator")
-    configure_parser.add_argument("--simulator", required=True, choices=("verilator", "icarus"))
+    configure_parser.add_argument(
+        "--simulator", required=True,
+        choices=("verilator", "icarus", "questa", "vcs", "xcelium"),
+    )
     configure_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
     configure_parser.set_defaults(func=_command_configure)
 

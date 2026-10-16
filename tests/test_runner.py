@@ -11,7 +11,12 @@ from unittest.mock import patch
 from veriforge.cli import _init_project, main
 from veriforge.project import load_project
 from veriforge.history import list_runs
-from veriforge.runner import evaluate_run, parse_test_markers, run_simulation, run_verilator
+from veriforge.runner import (
+    evaluate_run,
+    parse_test_markers,
+    run_simulation,
+    run_verilator,
+)
 
 
 class RunnerTests(unittest.TestCase):
@@ -125,6 +130,103 @@ class RunnerTests(unittest.TestCase):
             self.assertTrue((root / ".veriforge/run.json").is_file())
             self.assertEqual(list_runs(root)[0]["status"], "blocked")
             self.assertFalse((root / "waveform.vcd").exists())
+
+    def test_questa_adapter_runs_setup_compile_and_simulation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "questa"'))
+            project = load_project(root)
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                if command[0].endswith("vlib"):
+                    library = Path(kwargs["cwd"]) / "work"
+                    library.mkdir()
+                    (library / "info").write_text("Questa library")
+                    return CompletedProcess(command, 0, "library created\n")
+                if command[0].endswith("vsim"):
+                    (Path(kwargs["cwd"]) / "waveform.vcd").write_text("$enddefinitions $end\n")
+                    return CompletedProcess(command, 0, "VFTEST: smoke PASS\n")
+                return CompletedProcess(command, 0, "compiled\n")
+
+            with patch("veriforge.runner.shutil.which", side_effect=lambda name: f"/tools/{name}"), \
+                 patch("veriforge.runner.subprocess.run", side_effect=fake_run):
+                code, result = run_simulation(project, runtime_args=["+mode=fast"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["simulator"], "questa")
+            self.assertEqual([Path(command[0]).name for command in calls], ["vlib", "vlog", "vsim"])
+            self.assertIn("-sv", calls[1])
+            self.assertEqual(calls[2][-1], "+mode=fast")
+            self.assertEqual(result["waveform"], "waveform.vcd")
+
+    def test_commercial_adapter_without_tool_is_blocked_and_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "vcs"'))
+            with patch("veriforge.runner.shutil.which", return_value=None):
+                code, result = run_simulation(load_project(root))
+            self.assertEqual(code, 2)
+            self.assertEqual(result["status"], "blocked")
+            self.assertIn("vcs", result["message"])
+            self.assertEqual(list_runs(root)[0]["status"], "blocked")
+
+    def test_vcs_adapter_builds_binary_and_passes_runtime_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "vcs"'))
+            project = load_project(root)
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                if Path(command[0]).name == "vcs":
+                    output = Path(command[command.index("-o") + 1])
+                    output.write_text("fake VCS binary")
+                    return CompletedProcess(command, 0, "compiled\n")
+                (Path(kwargs["cwd"]) / "waveform.vcd").write_text("$enddefinitions $end\n")
+                return CompletedProcess(command, 0, "VFTEST: smoke PASS\n")
+
+            with patch("veriforge.runner.shutil.which", side_effect=lambda name: f"/tools/{name}"), \
+                 patch("veriforge.runner.subprocess.run", side_effect=fake_run):
+                code, result = run_simulation(project, runtime_args=["+mode=slow"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["simulator"], "vcs")
+            self.assertIn("-sverilog", calls[0])
+            self.assertIn("-top", calls[0])
+            self.assertEqual(calls[1][-1], "+mode=slow")
+            self.assertEqual(result["waveform"], "waveform.vcd")
+
+    def test_xcelium_combined_adapter_passes_plusargs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            config = root / "veriforge.toml"
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "xcelium"'))
+            project = load_project(root)
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                (Path(kwargs["cwd"]) / "waveform.vcd").write_text("$enddefinitions $end\n")
+                return CompletedProcess(command, 0, "VFTEST: smoke PASS\n")
+
+            with patch("veriforge.runner.shutil.which", side_effect=lambda name: f"/tools/{name}"), \
+                 patch("veriforge.runner.subprocess.run", side_effect=fake_run):
+                code, result = run_simulation(project, runtime_args=["+mode=burst"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(result["simulator"], "xcelium")
+            self.assertEqual(result["execution_mode"], "combined")
+            self.assertEqual(len(calls), 1)
+            self.assertIn("-top", calls[0])
+            self.assertEqual(calls[0][-1], "+mode=burst")
+            self.assertEqual(result["waveform"], "waveform.vcd")
 
 
 if __name__ == "__main__":

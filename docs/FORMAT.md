@@ -1,5 +1,16 @@
 # VeriForge project formats
 
+## Simulator selection
+
+Set `[simulator].name` to `verilator`, `icarus`, `questa`, `vcs`, or `xcelium`.
+Verilator and Icarus use separate compile and run commands. Questa uses
+`vlib`/`vlog`/`vsim`, VCS builds a `simv` executable, and Xcelium compiles and
+runs through one `xrun` invocation. All adapters normalize return status,
+`VFTEST` markers, waveform paths, logs, and run-history records. Questa, VCS,
+and Xcelium require a local licensed installation; VeriForge's unit tests mock
+their executables and do not replace testing against the installed vendor
+tools.
+
 ## Source index configuration
 
 An optional `[index]` table in `veriforge.toml` controls HDL indexing:

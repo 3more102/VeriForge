@@ -98,6 +98,7 @@ def _blocked(
         "tests": [],
         "waveform": None,
         "message": message,
+        "execution_mode": "combined" if simulator == "xcelium" else "compile-run",
         "scenario": scenario,
         "seed": seed,
         "arguments": runtime_args,
@@ -111,12 +112,15 @@ def _run_adapter(
     simulator: str,
     compile_command: list[str],
     run_command: list[str],
-    expected_output: Path,
+    expected_output: Path | None,
     required_tools: list[str],
     runtime_args: list[str],
     scenario: str | None,
     seed: int | None,
     execution_dir: Path | None,
+    prepare_commands: list[list[str]] | None = None,
+    combined_compile_and_run: bool = False,
+    output_is_directory: bool = False,
 ) -> tuple[int, dict]:
     if project.waveform_file and project.waveform_file.exists():
         project.waveform_file.unlink()
@@ -132,40 +136,79 @@ def _run_adapter(
             runtime_args,
         )
 
-    run_command = [*run_command, *runtime_args]
+    if combined_compile_and_run:
+        compile_command = [*compile_command, *runtime_args]
+    else:
+        run_command = [*run_command, *runtime_args]
     run_cwd = execution_dir or project.root
     run_cwd.mkdir(parents=True, exist_ok=True)
     timeout = project.timeout_seconds
-    output_chunks: list[str] = ["$ " + " ".join(compile_command) + "\n"]
+    output_chunks: list[str] = []
     compile_code: int | None = None
     run_code: int | None = None
     message: str | None = None
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     started_clock = time.monotonic()
 
-    try:
-        compiled = subprocess.run(
-            compile_command,
-            cwd=run_cwd,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=timeout,
-            check=False,
-        )
-        compile_code = compiled.returncode
-        output_chunks.append(_as_text(compiled.stdout))
-    except subprocess.TimeoutExpired as exc:
-        compile_code = 124
-        message = f"{simulator} build exceeded timeout of {timeout} seconds."
-        output_chunks.append(_as_text(exc.stdout) + "\n" + message + "\n")
-    except OSError as exc:
-        compile_code = 127
-        message = f"Could not start {simulator} compiler: {exc}"
-        output_chunks.append(message + "\n")
+    for prepare_command in prepare_commands or []:
+        output_chunks.append("$ " + " ".join(prepare_command) + "\n")
+        try:
+            prepared = subprocess.run(
+                prepare_command,
+                cwd=run_cwd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                check=False,
+            )
+            output_chunks.append(_as_text(prepared.stdout))
+            if prepared.returncode != 0:
+                compile_code = prepared.returncode
+                message = f"{simulator} preparation failed."
+                break
+        except subprocess.TimeoutExpired as exc:
+            compile_code = 124
+            message = f"{simulator} setup exceeded timeout of {timeout} seconds."
+            output_chunks.append(_as_text(exc.stdout) + "\n" + message + "\n")
+            break
+        except OSError as exc:
+            compile_code = 127
+            message = f"Could not start {simulator} setup command: {exc}"
+            output_chunks.append(message + "\n")
+            break
 
-    if compile_code == 0:
-        if not expected_output.is_file():
+    if compile_code is None:
+        output_chunks.append("\n$ " + " ".join(compile_command) + "\n")
+        try:
+            compiled = subprocess.run(
+                compile_command,
+                cwd=run_cwd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                check=False,
+            )
+            compile_code = compiled.returncode
+            output_chunks.append(_as_text(compiled.stdout))
+        except subprocess.TimeoutExpired as exc:
+            compile_code = 124
+            message = f"{simulator} build exceeded timeout of {timeout} seconds."
+            output_chunks.append(_as_text(exc.stdout) + "\n" + message + "\n")
+        except OSError as exc:
+            compile_code = 127
+            message = f"Could not start {simulator} compiler: {exc}"
+            output_chunks.append(message + "\n")
+
+    if combined_compile_and_run:
+        run_code = compile_code
+    elif compile_code == 0:
+        output_found = (
+            expected_output is None
+            or (expected_output.is_dir() if output_is_directory else expected_output.is_file())
+        )
+        if not output_found:
             run_code = 127
             message = f"{simulator} build succeeded but output was not found: {expected_output}"
             output_chunks.append(message + "\n")
@@ -213,6 +256,7 @@ def _run_adapter(
         "tests": tests,
         "waveform": waveform,
         "message": message,
+        "execution_mode": "combined" if combined_compile_and_run else "compile-run",
         "scenario": scenario,
         "seed": seed,
         "arguments": runtime_args,
@@ -302,6 +346,116 @@ def run_icarus(
     )
 
 
+def run_questa(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
+    """Compile with Questa vlog and run the selected top in batch mode."""
+    run_dir = execution_dir or project.root
+    library = run_dir / "work"
+    prepare_commands = [] if (library / "info").is_file() else [["vlib", "work"]]
+    compiler = shutil.which("vlog") or "vlog"
+    simulator = shutil.which("vsim") or "vsim"
+    compile_command = [
+        compiler, "-sv", "-work", "work", *(str(source) for source in project.sources),
+    ]
+    run_command = [
+        simulator, "-c", "-do", "run -all; quit -f", f"work.{project.top_module}",
+    ]
+    return _run_adapter(
+        project,
+        "questa",
+        compile_command,
+        run_command,
+        library,
+        ["vlib", "vlog", "vsim"],
+        list(runtime_args),
+        scenario,
+        seed,
+        execution_dir,
+        prepare_commands=prepare_commands,
+        output_is_directory=True,
+    )
+
+
+def run_vcs(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
+    """Build a VCS simulation executable and run it with the case arguments."""
+    build_dir = project.root / ".veriforge" / "build" / "vcs"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    compiler = shutil.which("vcs") or "vcs"
+    output = build_dir / "simv"
+    compile_command = [
+        compiler,
+        "-full64",
+        "-sverilog",
+        "-top",
+        project.top_module,
+        "-o",
+        str(output),
+        *(str(source) for source in project.sources),
+    ]
+    return _run_adapter(
+        project,
+        "vcs",
+        compile_command,
+        [str(output)],
+        output,
+        ["vcs"],
+        list(runtime_args),
+        scenario,
+        seed,
+        execution_dir,
+    )
+
+
+def run_xcelium(
+    project: Project,
+    *,
+    runtime_args: list[str] | tuple[str, ...] = (),
+    scenario: str | None = None,
+    seed: int | None = None,
+    execution_dir: Path | None = None,
+) -> tuple[int, dict]:
+    """Compile and run Xcelium in one batch invocation."""
+    run_dir = execution_dir or project.root
+    library_dir = run_dir / ".veriforge" / "xcelium"
+    library_dir.parent.mkdir(parents=True, exist_ok=True)
+    executable = shutil.which("xrun") or "xrun"
+    command = [
+        executable,
+        "-sv",
+        "-top",
+        project.top_module,
+        "-xmlibdirname",
+        str(library_dir),
+        *(str(source) for source in project.sources),
+    ]
+    return _run_adapter(
+        project,
+        "xcelium",
+        command,
+        [],
+        None,
+        ["xrun"],
+        list(runtime_args),
+        scenario,
+        seed,
+        execution_dir,
+        combined_compile_and_run=True,
+    )
+
+
 def run_simulation(
     project: Project,
     *,
@@ -311,7 +465,13 @@ def run_simulation(
     execution_dir: Path | None = None,
 ) -> tuple[int, dict]:
     """Run the configured adapter."""
-    adapters = {"verilator": run_verilator, "icarus": run_icarus}
+    adapters = {
+        "verilator": run_verilator,
+        "icarus": run_icarus,
+        "questa": run_questa,
+        "vcs": run_vcs,
+        "xcelium": run_xcelium,
+    }
     try:
         adapter = adapters[project.simulator]
     except KeyError as exc:

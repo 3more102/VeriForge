@@ -49,6 +49,7 @@ class Project:
 _REQ_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _HDL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _EVIDENCE_TYPES = {"test", "assertion", "coverage"}
+_SIMULATORS = {"verilator", "icarus", "questa", "vcs", "xcelium"}
 _SLANG_STANDARDS = {
     "1364-1995", "1364-2001-noconfig", "1364-2001", "1364-2005",
     "1800-2005", "1800-2009", "1800-2012", "1800-2017", "1800-2023", "latest",
@@ -144,9 +145,10 @@ def load_project(path: str | Path) -> Project:
     sources_value = simulator.get("sources", [])
     if not name:
         raise ProjectError("[project].name must be set in veriforge.toml")
-    if sim_name not in {"verilator", "icarus"}:
+    if sim_name not in _SIMULATORS:
         raise ProjectError(
-            f"Simulator {sim_name!r} is not supported; choose 'verilator' or 'icarus'"
+            f"Simulator {sim_name!r} is not supported; choose one of: "
+            + ", ".join(sorted(_SIMULATORS))
         )
     if not _HDL_IDENTIFIER.fullmatch(top):
         raise ProjectError("[simulator].top_module must be a SystemVerilog identifier")

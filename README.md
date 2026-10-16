@@ -6,8 +6,9 @@ simulation outcomes, then gives each uncovered requirement a concrete next
 action.
 
 The v0.1 vertical slice supports Verilator and Icarus Verilog, plus a
-simulator-neutral CSV coverage import. Analysis is deterministic and local; the
-run ledger is a small project-local SQLite database. No AI service or external
+simulator-neutral CSV coverage import. The v0.2 release adds optional adapters
+for Questa, VCS, and Xcelium. Analysis is deterministic and local; the run
+ledger is a small project-local SQLite database. No AI service or external
 Python package is required at runtime.
 
 ## Quick start
@@ -38,7 +39,7 @@ requirement status.
 | `veriforge add rtl|tb <file>... [--project DIR]` | Copy HDL files into the project and add them to the configured source list. |
 | `veriforge index [project] [--backend auto|scanner|slang]` | Inventory configured sources and, when available, parse them with Slang. |
 | `veriforge analyze [project]` | Trace requirements to evidence and write Markdown and JSON reports. |
-| `veriforge configure --simulator <name> [project]` | Select `verilator` or `icarus` for the project. |
+| `veriforge configure --simulator <name> [project]` | Select `verilator`, `icarus`, `questa`, `vcs`, or `xcelium`. |
 | `veriforge run [project]` | Compile and run the configured testbench; save logs, waveform, and history. |
 | `veriforge regress [project]` | Run every named case in `regression.toml` and write an aggregate result. |
 | `veriforge history [project] [--limit N]` | Show recent passed, failed, and blocked runs. |
@@ -47,7 +48,10 @@ For example, add project-owned sources with `veriforge add rtl ../rtl/adapter.sv
 and `veriforge add tb ../tb/adapter_tb.sv`. Select an adapter with
 `veriforge configure --simulator icarus` or
 `veriforge configure --simulator verilator`. The selected tool must be installed
-on `PATH`. If it is missing, the run is marked blocked and retained in history.
+on `PATH`. Questa requires `vlib`, `vlog`, and `vsim`; VCS requires `vcs`; and
+Xcelium requires `xrun`. If a required tool is missing, the run is marked
+blocked and retained in history. Commercial simulators also require a valid
+license and their setup environment.
 Edit `top_module` in `veriforge.toml` to select the testbench top.
 The default run enables tracing and produces `waveform.vcd` when the testbench
 calls `$dumpfile` and `$dumpvars`. Icarus runs use `iverilog` and `vvp`; Verilator
@@ -146,7 +150,7 @@ coverage syntax.
 - `.veriforge/history.sqlite3` — append-only run and per-test history.
 - `.veriforge/regression.json` — aggregate status and artifact paths for the last regression.
 - `.veriforge/source-index.json` — source hashes and parser-backed design-unit inventory.
-- `logs/verilator.log` or `logs/icarus.log` — compiler and simulation output.
+- `logs/<simulator>.log` — compiler and simulation output.
 - `logs/<simulator>-<case>.log` — per-case regression output.
 - `waveform.vcd` — traced signals when the testbench enables `$dumpvars`.
 - `.veriforge/regression/<case>/waveform.vcd` — per-case regression waveform.
@@ -164,9 +168,11 @@ Python 3.11 or newer is required. Runtime code uses only the standard library.
 
 The source scanner recognizes explicit annotations; the optional Slang CST
 backend adds syntax-aware source indexing while preserving that explicit
-requirement map. The remaining roadmap is Questa/VCS/Xcelium adapters, UCIS
-import, and richer HTML exploration. VeriForge does not implement UVM
-automation, formal proof, or AI-based analysis.
+requirement map. The remaining roadmap is UCIS import and richer HTML
+exploration. Commercial adapter commands are covered by mocked runner tests;
+running them against real tools requires a locally installed, licensed
+simulator. VeriForge does not implement UVM automation, formal proof, or
+AI-based analysis.
 
 ## License
 

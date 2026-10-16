@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from veriforge.cli import _init_project
+from veriforge.cli import _init_project, main
 from veriforge.project import ProjectError, load_project
 
 
@@ -59,12 +59,18 @@ class ProjectTests(unittest.TestCase):
             project = load_project(root)
             self.assertEqual(project.simulator, "icarus")
 
+    def test_configure_accepts_commercial_adapter_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = _init_project(Path(directory) / "demo")
+            self.assertEqual(main(["configure", "--simulator", "xcelium", str(root)]), 0)
+            self.assertEqual(load_project(root).simulator, "xcelium")
+
     def test_rejects_unsupported_simulator(self):
         with tempfile.TemporaryDirectory() as directory:
             root = _init_project(Path(directory) / "demo")
             config = root / "veriforge.toml"
-            config.write_text(config.read_text().replace('name = "verilator"', 'name = "questa"'))
-            with self.assertRaisesRegex(ProjectError, "choose 'verilator' or 'icarus'"):
+            config.write_text(config.read_text().replace('name = "verilator"', 'name = "unknown"'))
+            with self.assertRaisesRegex(ProjectError, "choose one of"):
                 load_project(root)
 
     def test_rejects_invalid_top_module_identifier(self):
