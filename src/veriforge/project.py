@@ -23,6 +23,15 @@ class Requirement:
 
 
 @dataclass(frozen=True)
+class SourceIndexConfig:
+    backend: str
+    slang_command: str
+    standard: str
+    include_dirs: tuple[Path, ...]
+    defines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Project:
     root: Path
     name: str
@@ -34,11 +43,16 @@ class Project:
     requirements: tuple[Requirement, ...]
     coverage_file: Path
     regression_file: Path
+    source_index: SourceIndexConfig
 
 
 _REQ_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _HDL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _EVIDENCE_TYPES = {"test", "assertion", "coverage"}
+_SLANG_STANDARDS = {
+    "1364-1995", "1364-2001-noconfig", "1364-2001", "1364-2005",
+    "1800-2005", "1800-2009", "1800-2012", "1800-2017", "1800-2023", "latest",
+}
 _REQUIREMENT_COLUMNS = {
     "id", "description", "priority", "area", "required_evidence"
 }
@@ -121,8 +135,9 @@ def load_project(path: str | Path) -> Project:
     project = config.get("project", {})
     simulator = config.get("simulator", {})
     run = config.get("run", {})
-    if not all(isinstance(section, dict) for section in (project, simulator, run)):
-        raise ProjectError("[project], [simulator], and [run] must be TOML tables")
+    index = config.get("index", {})
+    if not all(isinstance(section, dict) for section in (project, simulator, run, index)):
+        raise ProjectError("[project], [simulator], [run], and [index] must be TOML tables")
     name = str(project.get("name", "")).strip()
     sim_name = str(simulator.get("name", "verilator")).strip().lower()
     top = str(simulator.get("top_module", "")).strip()
@@ -165,6 +180,35 @@ def load_project(path: str | Path) -> Project:
         except ValueError as exc:
             raise ProjectError("[run].waveform must stay inside the project directory") from exc
 
+    backend = str(index.get("backend", "auto")).strip().lower()
+    if backend not in {"auto", "scanner", "slang"}:
+        raise ProjectError("[index].backend must be 'auto', 'scanner', or 'slang'")
+    slang_command = index.get("slang_command", "slang")
+    if not isinstance(slang_command, str) or not slang_command.strip():
+        raise ProjectError("[index].slang_command must be a non-empty executable name")
+    standard = str(index.get("standard", "1800-2017")).strip()
+    if standard not in _SLANG_STANDARDS:
+        raise ProjectError(
+            "[index].standard must be one of: " + ", ".join(sorted(_SLANG_STANDARDS))
+        )
+    include_values = index.get("include_dirs", [])
+    if not isinstance(include_values, list) or not all(
+        isinstance(item, str) and item.strip() for item in include_values
+    ):
+        raise ProjectError("[index].include_dirs must be an array of non-empty paths")
+    define_values = index.get("defines", [])
+    if not isinstance(define_values, list) or not all(
+        isinstance(item, str) and item.strip() for item in define_values
+    ):
+        raise ProjectError("[index].defines must be an array of non-empty macro definitions")
+    source_index = SourceIndexConfig(
+        backend=backend,
+        slang_command=slang_command.strip(),
+        standard=standard,
+        include_dirs=tuple((root / item).resolve() for item in include_values),
+        defines=tuple(item.strip() for item in define_values),
+    )
+
     return Project(
         root=root,
         name=name,
@@ -176,4 +220,5 @@ def load_project(path: str | Path) -> Project:
         requirements=_read_requirements((root / manifest_name).resolve()),
         coverage_file=(root / coverage_name).resolve(),
         regression_file=(root / regression_name).resolve(),
+        source_index=source_index,
     )

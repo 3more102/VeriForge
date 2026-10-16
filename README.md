@@ -36,6 +36,7 @@ requirement status.
 |---|---|
 | `veriforge init [directory]` | Create an example project; refuses to overwrite a non-empty directory. |
 | `veriforge add rtl|tb <file>... [--project DIR]` | Copy HDL files into the project and add them to the configured source list. |
+| `veriforge index [project] [--backend auto|scanner|slang]` | Inventory configured sources and, when available, parse them with Slang. |
 | `veriforge analyze [project]` | Trace requirements to evidence and write Markdown and JSON reports. |
 | `veriforge configure --simulator <name> [project]` | Select `verilator` or `icarus` for the project. |
 | `veriforge run [project]` | Compile and run the configured testbench; save logs, waveform, and history. |
@@ -52,6 +53,28 @@ The default run enables tracing and produces `waveform.vcd` when the testbench
 calls `$dumpfile` and `$dumpvars`. Icarus runs use `iverilog` and `vvp`; Verilator
 runs use Verilator's built-in binary flow. Both require explicit `VFTEST`
 markers for a passing result.
+
+`veriforge index` inventories configured HDL files, hashes their contents, and
+records declared design units. The `auto` backend uses the optional `slang`
+executable when it is on `PATH`, otherwise it records a scanner-only inventory.
+Install the Slang CLI from its official release to enable CST-backed parsing.
+`pyslang` provides Python bindings but VeriForge currently invokes the CLI.
+`--backend slang` requires the executable; `--backend scanner` explicitly skips
+parsing. Slang runs in parse-only mode, so the index does not claim type
+checking or elaboration.
+`analyze` refreshes the same source index and continues to use the explicit
+`vf:` annotations for requirement mapping.
+
+Projects can tune the parser in `veriforge.toml`:
+
+```toml
+[index]
+backend = "auto" # auto, scanner, or slang
+slang_command = "slang"
+standard = "1800-2017"
+include_dirs = ["include"]
+defines = ["SIMULATION=1"]
+```
 
 `veriforge regress` runs the cases in `regression.toml` in order. Each case can
 provide a `seed` and simulator runtime `arguments`; seeds are passed as
@@ -122,6 +145,7 @@ coverage syntax.
 - `.veriforge/run.json` — last normalized simulation result.
 - `.veriforge/history.sqlite3` — append-only run and per-test history.
 - `.veriforge/regression.json` — aggregate status and artifact paths for the last regression.
+- `.veriforge/source-index.json` — source hashes and parser-backed design-unit inventory.
 - `logs/verilator.log` or `logs/icarus.log` — compiler and simulation output.
 - `logs/<simulator>-<case>.log` — per-case regression output.
 - `waveform.vcd` — traced signals when the testbench enables `$dumpvars`.
@@ -138,11 +162,11 @@ Python 3.11 or newer is required. Runtime code uses only the standard library.
 
 ## Scope and next steps
 
-The source scanner is intentionally lightweight and recognizes explicit
-annotations rather than pretending to parse the complete SystemVerilog
-language. The next stages are parser-backed indexing (Slang), Questa/VCS/Xcelium
-adapters, UCIS import, and richer HTML exploration.
-v0.1 does not implement UVM automation, formal proof, or AI-based analysis.
+The source scanner recognizes explicit annotations; the optional Slang CST
+backend adds syntax-aware source indexing while preserving that explicit
+requirement map. The remaining roadmap is Questa/VCS/Xcelium adapters, UCIS
+import, and richer HTML exploration. VeriForge does not implement UVM
+automation, formal proof, or AI-based analysis.
 
 ## License
 

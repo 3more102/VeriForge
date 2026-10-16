@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .project import Project, Requirement, ProjectError
 from .scanner import StaticEvidence, scan_sources
+from .source_index import build_source_index
 
 
 _COVERAGE_COLUMNS = {"requirement_id", "coverage_id", "hits", "bins"}
@@ -194,8 +195,9 @@ def _evaluate_requirement(
     }
 
 
-def analyze(project: Project) -> dict:
+def analyze(project: Project, backend: str | None = None) -> dict:
     static = scan_sources(project)
+    source_index = build_source_index(project, backend)
     coverage, coverage_warnings = load_coverage(project)
     known_ids = {req.id for req in project.requirements}
     for req_id, imported in coverage.items():
@@ -224,8 +226,9 @@ def analyze(project: Project) -> dict:
         "summary": totals,
         "requirements": requirements,
         "sources": static.source_files,
-        "warnings": static.warnings + coverage_warnings,
+        "warnings": static.warnings + coverage_warnings + source_index["warnings"],
         "simulation": run,
+        "source_index": source_index,
     }
     return result
 

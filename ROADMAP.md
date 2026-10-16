@@ -13,13 +13,13 @@
 - [x] Generate deterministic Markdown and JSON gap reports.
 - [x] Add input validation and unit tests.
 
-## Next implementation steps
+## v0.2 — parser-backed analysis and simulator breadth
 
-1. Replace annotation-only source discovery with a Slang-backed index while
-   preserving the explicit requirement mapping model.
-2. Add normalized adapters for Questa, VCS, and Xcelium execution.
-3. Import UCIS coverage data and preserve source-level provenance.
-4. Add a lightweight local HTML view after the report model stabilizes.
+- [x] Add an optional Slang CST source index while preserving explicit
+  requirement annotations and scanner-only operation.
+- [ ] Add normalized adapters for Questa, VCS, and Xcelium execution.
+- [ ] Import UCIS coverage data and preserve source-level provenance.
+- [ ] Add a lightweight local HTML view after the report model stabilizes.
 
 Formal analysis and AI-assisted debugging are later extensions. They are not
 part of the v0.1 execution path.

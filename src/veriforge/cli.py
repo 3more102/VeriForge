@@ -18,6 +18,7 @@ from .history import list_runs
 from .project import ProjectError, load_project
 from .regression import run_regression
 from .runner import run_simulation
+from .source_index import build_source_index
 
 
 _NAME = re.compile(r"[^A-Za-z0-9_-]+")
@@ -41,6 +42,10 @@ sources = ["rtl/rv_buffer.sv", "tb/tb_top.sv"]
 timeout_seconds = 60
 trace = true
 waveform = "waveform.vcd"
+
+[index]
+backend = "auto"
+standard = "1800-2017"
 ''',
         "requirements.csv": '''id,description,priority,area,required_evidence
 REQ-RV-001,Retain output data while downstream applies backpressure,high,ready-valid,test;assertion;coverage
@@ -192,9 +197,15 @@ def _command_init(args: argparse.Namespace) -> int:
 def _command_analyze(args: argparse.Namespace) -> int:
     try:
         project = load_project(args.path)
-        result = analyze(project)
+        result = analyze(project, args.backend)
         reports = project.root / "reports"
         reports.mkdir(exist_ok=True)
+        index_path = project.root / ".veriforge" / "source-index.json"
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(
+            json.dumps(result["source_index"], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         (reports / "veriforge-report.json").write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -210,8 +221,39 @@ def _command_analyze(args: argparse.Namespace) -> int:
         f"{project.name}: {summary['complete']}/{total} requirements complete; "
         f"{summary['gap']} gaps, {summary['pending']} pending, {summary['failing']} failing"
     )
+    print(f"Source index: {result['source_index']['backend']} ({len(result['source_index']['sources'])} sources)")
     print(f"Reports: {project.root / 'reports' / 'veriforge-report.md'}")
-    return 1 if summary["failing"] else 0
+    index_failed = any(
+        item["status"] in {"parse_error", "unreadable"}
+        for item in result["source_index"]["sources"]
+    )
+    return 1 if summary["failing"] or index_failed else 0
+
+
+def _command_index(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.path)
+        source_index = build_source_index(project, args.backend)
+        index_path = project.root / ".veriforge" / "source-index.json"
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(
+            json.dumps(source_index, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ProjectError, ValueError) as exc:
+        print(f"veriforge: {exc}", file=sys.stderr)
+        return 2
+    source_count = len(source_index["sources"])
+    unit_count = sum(len(item["design_units"]) for item in source_index["sources"])
+    failed = sum(item["status"] in {"parse_error", "unreadable"} for item in source_index["sources"])
+    print(
+        f"Indexed {source_count} source file(s) with {source_index['backend']}; "
+        f"found {unit_count} design unit(s), {failed} failed."
+    )
+    print(f"Index: {project.root / '.veriforge' / 'source-index.json'}")
+    for warning in source_index["warnings"]:
+        print(f"Warning: {warning}")
+    return 1 if failed else 0
 
 
 def _add_sources(project, kind: str, source_paths: list[str]) -> list[Path]:
@@ -402,7 +444,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_parser = subparsers.add_parser("analyze", help="find verification evidence gaps")
     analyze_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
+    analyze_parser.add_argument("--backend", choices=("auto", "scanner", "slang"), help="source index backend")
     analyze_parser.set_defaults(func=_command_analyze)
+
+    index_parser = subparsers.add_parser("index", help="parse and inventory configured HDL sources")
+    index_parser.add_argument("path", nargs="?", default=".", help="project directory or config path")
+    index_parser.add_argument("--backend", choices=("auto", "scanner", "slang"), help="source index backend")
+    index_parser.set_defaults(func=_command_index)
 
     add_parser = subparsers.add_parser("add", help="copy RTL or testbench files into a project")
     add_parser.add_argument("kind", choices=("rtl", "tb"), help="destination source class")

@@ -1,4 +1,28 @@
-# VeriForge v0.1 input formats
+# VeriForge project formats
+
+## Source index configuration
+
+An optional `[index]` table in `veriforge.toml` controls HDL indexing:
+
+```toml
+[index]
+backend = "auto" # auto, scanner, or slang
+slang_command = "slang"
+standard = "1800-2017"
+include_dirs = ["include"]
+defines = ["SIMULATION=1"]
+```
+
+`auto` uses the Slang CLI when found and otherwise writes a scanner-only source
+inventory. `slang` requires the executable and records syntax errors. Slang's
+parse-only CST index reports declared design units without claiming semantic
+elaboration. The source annotation scanner remains responsible for explicit
+requirement-to-evidence links.
+
+The generated `.veriforge/source-index.json` schema version 1 contains the
+selected backend, parser/version metadata when Slang is active, and one record
+per configured source with its relative path, language, SHA-256 digest, line
+count, design units, parse status, and diagnostic when applicable.
 
 ## `requirements.csv`
 
